@@ -1,0 +1,9 @@
+# Virtual environments
+venv/
+.avenv/
+
+# Environment variable files
+.env
+tools/.env
+tools/credentials.json
+tools/token.pickle
