@@ -12,7 +12,7 @@ from bson import ObjectId
 SESSION_EXPIRE_HOURS = 24
 
 
-MONGO_URL = "mongodb+srv://vinitha:vinitha432001v~@cluster1.ddqueju.mongodb.net/"
+MONGO_URL = "mongodb+srv://vinitha:vinitha432001v~@cluster1.ddqueju.mongodb.net/?retryWrites=true&w=majority&ssl=true&ssl_cert_reqs=CERT_NONE"
 DATABASE_NAME = "User"
 USERS_COLLECTION = "users"
 SESSIONS_COLLECTION = "sessions"
