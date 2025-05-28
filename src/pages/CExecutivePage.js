@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -12,6 +12,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import FloatingEdge from "../components/FloatingEdge";
 import FloatingConnectionLine from "../components/FloatingConnectionLine";
+import RightContextMenu from "../components/RightContextMenu";
 
 const edgeTypes = {
   floating: FloatingEdge,
@@ -111,6 +112,7 @@ const initialEdges = [
 function CExecutivePage() {
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [selectedNode, setSelectedNode] = useState(null);
 
   const onConnect = useCallback(
     (params) =>
@@ -127,22 +129,30 @@ function CExecutivePage() {
     [setEdges]
   );
 
+  const onNodeClick = useCallback((event, node) => {
+    setSelectedNode(node);
+  }, []);
+
   return (
-    <div className="h-full">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        fitView
-        edgeTypes={edgeTypes}
-        connectionLineComponent={FloatingConnectionLine}
-      >
-        <MiniMap />
-        <Controls />
-        <Background gap={16} />
-      </ReactFlow>
+    <div className="h-full flex">
+      <div className="flex-1">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={onNodeClick}
+          fitView
+          edgeTypes={edgeTypes}
+          connectionLineComponent={FloatingConnectionLine}
+        >
+          <MiniMap />
+          <Controls />
+          <Background gap={16} />
+        </ReactFlow>
+      </div>
+      {selectedNode && <RightContextMenu node={selectedNode} />}
     </div>
   );
 }

@@ -3,7 +3,6 @@ import { Routes, Route } from 'react-router-dom';
 import Header from './Header';
 import Footer from './Footer';
 import LeftSidebar from './LeftSidebar';
-import RightContextMenu from './RightContextMenu';
 import GMITeamPage from '../pages/GMITeamPage';
 import SDLCTeamPage from '../pages/SDLCTeamPage';
 import ProductTeamPage from '../pages/ProductTeamPage';
@@ -30,8 +29,6 @@ function Layout() {
             <Route path="/" element={<GMITeamPage />} />
           </Routes>
         </main>
-        
-        <RightContextMenu />
       </div>
       
       <Footer />
