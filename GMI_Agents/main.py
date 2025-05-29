@@ -345,20 +345,20 @@ def update_agent_by_id(agent_id: str, update: AgentUpdate):
 
 @app.get("/agents/my-agents")
 def get_my_agents():
-    """Get all agents from DB"""
-    database = get_database()
-    user_agents_collection = database["user_agents"]
+    """Get all default agent templates from the file system."""
+    agent_files = [f.replace(".json", "") for f in os.listdir(AGENT_DIR) if f.endswith(".json")]
     agents = []
-    for agent in user_agents_collection.find():
+
+    for agent_name in agent_files:
+        agent_data = get_default_agent_template(agent_name)
         agents.append({
-            "agent_id": str(agent["_id"]),
-            "agent_name": agent["agent_name"],
-            "agent_data": agent["agent_data"],
-            "last_updated": str(agent["last_updated"]),
-            "source": "user"
+            "agent_name": agent_name,
+            "agent_data": agent_data,
+            "source": "default"
         })
+
     return {
-        "message": f"Retrieved {len(agents)} user agents",
+        "message": f"Retrieved {len(agents)} default agent templates",
         "agents": agents
     }
 

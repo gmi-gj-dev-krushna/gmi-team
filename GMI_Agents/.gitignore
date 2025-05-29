@@ -7,3 +7,6 @@ venv/
 tools/.env
 tools/credentials.json
 tools/token.pickle
+
+# Python cache
+__pycache__/
