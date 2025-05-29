@@ -16,7 +16,7 @@ from auth import (
     connect_to_mongo, close_mongo_connection,
     authenticate_user, create_user, create_session,
     get_current_active_user, invalidate_session, get_session_id_from_request,
-    get_database 
+    get_database ,AgentCreate, create_agent as create_agent_in_db
 )
 
 app = FastAPI(title="GMI Agent Crew API")
@@ -201,6 +201,18 @@ async def logout(request: Request):
         return {"message": "Successfully logged out"}
     else:
         return {"message": "Session already invalid or not found"}
+    
+
+
+def list_cexecutive_agents() -> List[str]:
+    """List all agent names (without .json) from C-Executive folder"""
+    agents = []
+    for file in os.listdir(AGENT_DIR):
+        if file.endswith(".json"):
+            agent_name = os.path.splitext(file)[0]
+            agents.append(agent_name)
+    return agents
+
 
 def load_tool(tool_class_name: str):
     tools_dir = "src/project/tools"
@@ -343,22 +355,41 @@ def update_agent_by_id(agent_id: str, update: AgentUpdate):
     except InvalidId:
         raise HTTPException(status_code=400, detail="Invalid agent ID format")
 
+# @app.get("/agents/my-agents")
+# def get_my_agents():
+#     """Get all default agent templates from the file system."""
+#     agent_files = [f.replace(".json", "") for f in os.listdir(AGENT_DIR) if f.endswith(".json")]
+#     agents = []
+
+#     for agent_name in agent_files:
+#         agent_data = get_default_agent_template(agent_name)
+#         agents.append({
+#             "agent_name": agent_name,
+#             "agent_data": agent_data,
+#             "source": "default"
+#         })
+
+#     return {
+#         "message": f"Retrieved {len(agents)} default agent templates",
+#         "agents": agents
+#     }
+
 @app.get("/agents/my-agents")
 def get_my_agents():
-    """Get all default agent templates from the file system."""
-    agent_files = [f.replace(".json", "") for f in os.listdir(AGENT_DIR) if f.endswith(".json")]
+    """Get all agents from DB"""
+    database = get_database()
+    user_agents_collection = database["user_agents"]
     agents = []
-
-    for agent_name in agent_files:
-        agent_data = get_default_agent_template(agent_name)
+    for agent in user_agents_collection.find():
         agents.append({
-            "agent_name": agent_name,
-            "agent_data": agent_data,
-            "source": "default"
+            "agent_id": str(agent["_id"]),
+            "agent_name": agent["agent_name"],
+            "agent_data": agent["agent_data"],
+            "last_updated": str(agent["last_updated"]),
+            "source": "user"
         })
-
     return {
-        "message": f"Retrieved {len(agents)} default agent templates",
+        "message": f"Retrieved {len(agents)} user agents",
         "agents": agents
     }
 
@@ -370,6 +401,34 @@ def reset_agent_to_default(
     return {
         "message": f"Agent '{agent_name}' has been reset to default template."
     }
+
+
+
+
+@app.post("/agents", response_model=dict)
+async def create_public_agent(agent_data: AgentCreate):
+    """Create a new agent (no authentication required)"""
+    try:
+        agent = create_agent_in_db(agent_data)
+        return {
+            "message": "Agent created successfully",
+            "agent": {
+                "id": agent.id,
+                "name": agent.name,
+                "role": agent.role,
+                "goal": agent.goal,
+                "backstory": agent.backstory,
+                "verbose": agent.verbose,
+                "created_at": str(agent.created_at)
+            }
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Agent creation failed: {str(e)}"
+        )
 
 if __name__ == "__main__":
     import uvicorn
