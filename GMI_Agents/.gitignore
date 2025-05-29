@@ -1,12 +1,11 @@
 # Virtual environments
 venv/
 .avenv/
-
+ve/
+__pycache__/
 # Environment variable files
 .env
+tools/__pycache__
 tools/.env
 tools/credentials.json
 tools/token.pickle
-
-# Python cache
-__pycache__/
