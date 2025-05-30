@@ -1,38 +1,71 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
-function RightContextMenu({ node, onUpdateAgent }) {
+function RightContextMenu({ node, agent, onUpdateAgent }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editData, setEditData] = useState({});
 
+  useEffect(() => {
+    if (agent && !isEditing) {
+      setEditData({
+        name: agent.name || '',
+        role: agent.role || '',
+        goal: agent.goal || '',
+        backstory: Array.isArray(agent.backstory)
+          ? [...agent.backstory]
+          : typeof agent.backstory === 'string'
+            ? agent.backstory.split('\n')
+            : [''],
+        verbose:
+          agent.verbose !== undefined
+            ? agent.verbose
+            : agent.agent_data?.verbose !== undefined
+              ? agent.agent_data.verbose
+              : true
+      });
+    }
+  }, [agent, isEditing]);
+
   if (!node) return null;
 
-  const { label, name, role, goal, backstory } = node.data || {};
+  const { name, role, goal, backstory, verbose } = node.data || {};
 
-  const startEditing = () => {
-    setEditData({
-      label: label || '',
-      name: name || '',
-      role: role || '',
-      goal: goal || '',
-      backstory: Array.isArray(backstory) ? [...backstory] : ['']
-    });
-    setIsEditing(true);
-  };
+  const startEditing = () => setIsEditing(true);
 
   const cancelEditing = () => {
     setIsEditing(false);
-    setEditData({});
+    if (agent) {
+      setEditData({
+        name: agent.name || '',
+        role: agent.role || '',
+        goal: agent.goal || '',
+        backstory: Array.isArray(agent.backstory)
+          ? [...agent.backstory]
+          : typeof agent.backstory === 'string'
+            ? agent.backstory.split('\n')
+            : [''],
+        verbose:
+          agent.verbose !== undefined
+            ? agent.verbose
+            : agent.agent_data?.verbose !== undefined
+              ? agent.agent_data.verbose
+              : true
+      });
+    }
   };
 
   const saveChanges = () => {
     if (onUpdateAgent) {
       onUpdateAgent(node.id, {
         ...editData,
-        backstory: editData.backstory.filter(story => story.trim() !== '')
+        backstory: Array.isArray(editData.backstory)
+          ? editData.backstory.filter(story => story.trim() !== '')
+          : (typeof editData.backstory === 'string'
+            ? editData.backstory.split('\n').filter(story => story.trim() !== '')
+            : []),
+        verbose: !!editData.verbose
       });
     }
     setIsEditing(false);
-    setEditData({});
   };
 
   const addBackstoryField = () => {
@@ -76,14 +109,9 @@ function RightContextMenu({ node, onUpdateAgent }) {
         {!isEditing ? (
           // View Mode
           <div className="space-y-2">
-            <p className="text-sm font-medium text-gray-600">ID: {node.id}</p>
-            <p className="text-sm font-medium text-gray-600">Label: {label}</p>
-            <p className="text-sm font-medium text-gray-600">
-              Position: ({Math.round(node.position.x)}, {Math.round(node.position.y)})
-            </p>
             {name && (
               <div>
-                <p className="text-sm font-semibold text-gray-700">Agent Name:</p>
+                <p className="text-sm font-semibold text-gray-700">Name:</p>
                 <p className="text-sm text-gray-600 ml-2">{name}</p>
               </div>
             )}
@@ -109,20 +137,16 @@ function RightContextMenu({ node, onUpdateAgent }) {
                 </ul>
               </div>
             )}
+            <div>
+              <p className="text-sm font-semibold text-gray-700">Verbose:</p>
+              <p className="text-sm text-gray-600 ml-2">
+                {verbose === true ? 'true' : verbose === false ? 'false' : '—'}
+              </p>
+            </div>
           </div>
         ) : (
           // Edit Mode
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Label</label>
-              <input
-                type="text"
-                value={editData.label}
-                onChange={(e) => setEditData(prev => ({ ...prev, label: e.target.value }))}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-              />
-            </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Agent Name</label>
               <input
@@ -181,6 +205,17 @@ function RightContextMenu({ node, onUpdateAgent }) {
               >
                 + Add backstory point
               </button>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Verbose</label>
+              <input
+                type="checkbox"
+                checked={!!editData.verbose}
+                onChange={e => setEditData(prev => ({ ...prev, verbose: e.target.checked }))}
+                className="mr-2"
+              />
+              <span className="text-sm text-gray-700">Enable verbose mode</span>
             </div>
 
             <div className="flex gap-2 pt-4 border-t">
