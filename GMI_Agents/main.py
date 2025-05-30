@@ -103,9 +103,11 @@ class AgentIDPayload(BaseModel):
 
 
 def get_ceo_and_connected_agents() -> dict:
+    """Get CEO agent and his connected agents' IDs only"""
     database = get_database()
     user_agents_collection = database["agents"]
 
+    # Find CEO agent
     ceo_agent = user_agents_collection.find_one({"name": "CEO_agent"})
     if not ceo_agent:
         raise HTTPException(
@@ -593,8 +595,6 @@ def remove_agent_from_ceo(payload: AgentIDPayload):
         "message": "Agent was not linked to CEO",
         "connected_agents": connected
     }
-
-
 
 
 if __name__ == "__main__":
