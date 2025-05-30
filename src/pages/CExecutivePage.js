@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import {
   ReactFlow,
   Background,
@@ -55,24 +55,29 @@ function CExecutivePage() {
   const [error, setError] = useState(null);
   const [selectedAgent, setSelectedAgent] = useState(null);
 
+  // Fetch agent details in parallel
+  const fetchAgentDetails = useCallback(async (ids) => {
+    return Promise.all(
+      ids.map(id =>
+        fetch(`${API_BASE_URL}/agents/${id}`)
+          .then(res => res.ok ? res.json() : null)
+          .catch(() => null)
+      )
+    );
+  }, []);
+
   // Build nodes and edges from API data
   const buildNodesAndEdges = useCallback(async (cexecutiveData) => {
     const newNodes = [];
     const newEdges = [];
 
-    // Fetch CEO agent details
+    // CEO agent
     let ceoAgentDetails = null;
     try {
       const ceoResponse = await fetch(`${API_BASE_URL}/agents/${cexecutiveData.ceo_agent.id}`);
-      if (ceoResponse.ok) {
-        ceoAgentDetails = await ceoResponse.json();
-        console.log(`Fetched CEO agent details:`, ceoAgentDetails);
-      }
-    } catch (err) {
-      console.warn(`Failed to fetch CEO agent details:`, err);
-    }
+      if (ceoResponse.ok) ceoAgentDetails = await ceoResponse.json();
+    } catch {}
 
-    // Create CEO node with dynamic data
     const ceoNode = {
       id: cexecutiveData.ceo_agent.id,
       type: "ceoNode",
@@ -91,39 +96,24 @@ function CExecutivePage() {
     };
     newNodes.push(ceoNode);
 
-    console.log('CEO Agent ID:', cexecutiveData.ceo_agent.id);
-    console.log('Connected Agents:', cexecutiveData.connected_agents);
-
-    // Filter out the CEO agent from connected agents
-    // The connected_agents array includes the CEO itself, so we need to exclude it
+    // Filter out CEO from connected agents
     const nonCeoConnectedAgents = cexecutiveData.connected_agents?.filter(
       agent => agent.id !== cexecutiveData.ceo_agent.id
     ) || [];
-    
-    console.log('Non-CEO Connected Agents:', nonCeoConnectedAgents);
 
-    // Only create agent nodes if there are non-CEO connected agents
+    // Fetch all agent details in parallel
+    const agentDetailsArr = await fetchAgentDetails(nonCeoConnectedAgents.map(a => a.id));
+
     if (nonCeoConnectedAgents.length > 0) {
       const radius = 200;
       const angleStep = (2 * Math.PI) / nonCeoConnectedAgents.length;
 
       for (let i = 0; i < nonCeoConnectedAgents.length; i++) {
         const agentInfo = nonCeoConnectedAgents[i];
+        const agentDetails = agentDetailsArr[i];
         const angle = i * angleStep;
         const x = 300 + radius * Math.cos(angle);
         const y = 200 + radius * Math.sin(angle);
-
-        // Try to fetch detailed agent info
-        let agentDetails = null;
-        try {
-          const agentResponse = await fetch(`${API_BASE_URL}/agents/${agentInfo.id}`);
-          if (agentResponse.ok) {
-            agentDetails = await agentResponse.json();
-            console.log(`Fetched agent details for ${agentInfo.id}:`, agentDetails);
-          }
-        } catch (err) {
-          console.warn(`Failed to fetch details for agent ${agentInfo.id}:`, err);
-        }
 
         const agentNode = {
           id: agentInfo.id,
@@ -156,45 +146,37 @@ function CExecutivePage() {
         };
         newNodes.push(agentNode);
 
-        // Create edge from CEO to agent
-        const edge = {
+        newEdges.push({
           id: `e-${cexecutiveData.ceo_agent.id}-${agentInfo.id}`,
           source: cexecutiveData.ceo_agent.id,
           target: agentInfo.id,
           type: "floating",
           markerEnd: { type: MarkerType.Arrow },
-        };
-        newEdges.push(edge);
+        });
       }
     }
 
-    console.log('Final nodes:', newNodes);
-    console.log('Final edges:', newEdges);
-
     setNodes(newNodes);
     setEdges(newEdges);
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, fetchAgentDetails]);
 
-  // Initialize default structure if API fails
+  // Default structure if API fails
   const initializeDefaultStructure = useCallback(() => {
-    const defaultNodes = [
-      {
-        id: "default-ceo",
-        type: "ceoNode",
-        position: { x: 300, y: 200 },
-        data: {
-          label: "CEO",
-          name: "CEO_agent",
-          role: "Chief Executive Officer specializing in organizational vision and strategic decision-making",
-          goal: "Lead the organization with vision and integrity.",
-          backstory: ["Seasoned CEO with over 20 years of executive leadership experience."],
-          verbose: true,
-          onAddAgent: null,
-        },
-        style: { ...baseNodeStyle },
-      }
-    ];
-    setNodes(defaultNodes);
+    setNodes([{
+      id: "default-ceo",
+      type: "ceoNode",
+      position: { x: 300, y: 200 },
+      data: {
+        label: "CEO",
+        name: "CEO_agent",
+        role: "Chief Executive Officer specializing in organizational vision and strategic decision-making",
+        goal: "Lead the organization with vision and integrity.",
+        backstory: ["Seasoned CEO with over 20 years of executive leadership experience."],
+        verbose: true,
+        onAddAgent: null,
+      },
+      style: { ...baseNodeStyle },
+    }]);
     setEdges([]);
   }, [setNodes, setEdges]);
 
@@ -203,14 +185,10 @@ function CExecutivePage() {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/cexecutive`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch C-Executive structure');
-      }
+      if (!response.ok) throw new Error('Failed to fetch C-Executive structure');
       const data = await response.json();
-
       await buildNodesAndEdges(data);
     } catch (err) {
-      console.error('Error fetching C-Executive structure:', err);
       setError(err.message);
       initializeDefaultStructure();
     } finally {
@@ -218,27 +196,18 @@ function CExecutivePage() {
     }
   }, [buildNodesAndEdges, initializeDefaultStructure]);
 
-  // Load data on component mount
   useEffect(() => {
     fetchCExecutiveStructure();
   }, [fetchCExecutiveStructure]);
 
-  // Handle adding a new agent
-  const handleAddAgent = useCallback(() => {
-    setIsAddAgentModalOpen(true);
-  }, []);
-
+  const handleAddAgent = useCallback(() => setIsAddAgentModalOpen(true), []);
   const handleAddAgentSubmit = useCallback(async (agentData) => {
     try {
-      let agentId = agentData.id; // Use id from Quick Template if present
-
+      let agentId = agentData.id;
       if (!agentId) {
-        // Create new agent
         const createAgentResponse = await fetch(`${API_BASE_URL}/agents`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: agentData.name,
             role: agentData.role,
@@ -247,76 +216,49 @@ function CExecutivePage() {
             verbose: true,
           }),
         });
-
-        if (!createAgentResponse.ok) {
-          throw new Error('Failed to create agent');
-        }
-
+        if (!createAgentResponse.ok) throw new Error('Failed to create agent');
         const newAgent = await createAgentResponse.json();
         agentId = newAgent.agent.id;
       }
-
-      // Add agent to CEO's connected agents
       const addAgentResponse = await fetch(`${API_BASE_URL}/cexecutive/add-agent`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          agent_id: agentId
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId }),
       });
-
-      if (!addAgentResponse.ok) {
-        throw new Error('Failed to add agent to CEO');
-      }
-
-      // Refresh the structure
+      if (!addAgentResponse.ok) throw new Error('Failed to add agent to CEO');
       await fetchCExecutiveStructure();
       setIsAddAgentModalOpen(false);
     } catch (err) {
-      console.error('Error adding agent:', err);
       setError(`Failed to add agent: ${err.message}`);
     }
   }, [fetchCExecutiveStructure]);
 
-  // Handle removing an agent
   const handleRemoveAgent = useCallback(async (agentId) => {
     try {
       const removeAgentResponse = await fetch(`${API_BASE_URL}/cexecutive/remove-agent`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          agent_id: agentId
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId }),
       });
-
-      if (!removeAgentResponse.ok) {
-        throw new Error('Failed to remove agent from CEO');
-      }
-
-      // Refresh the structure
+      if (!removeAgentResponse.ok) throw new Error('Failed to remove agent from CEO');
       await fetchCExecutiveStructure();
-      if (selectedNode && selectedNode.id === agentId) {
-        setSelectedNode(null);
-      }
+      if (selectedNode && selectedNode.id === agentId) setSelectedNode(null);
     } catch (err) {
-      console.error('Error removing agent:', err);
       setError(`Failed to remove agent: ${err.message}`);
     }
   }, [selectedNode, fetchCExecutiveStructure]);
 
-  // Update nodes with callback functions
-  const nodesWithCallbacks = nodes.map((node) => ({
-    ...node,
-    data: {
-      ...node.data,
-      onAddAgent: node.type === "ceoNode" ? handleAddAgent : node.data.onAddAgent,
-      onRemoveAgent: node.type === "agentNode" ? handleRemoveAgent : node.data.onRemoveAgent,
-    },
-  }));
+  // Memoize nodes with callbacks
+  const nodesWithCallbacks = useMemo(() =>
+    nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        onAddAgent: node.type === "ceoNode" ? handleAddAgent : node.data.onAddAgent,
+        onRemoveAgent: node.type === "agentNode" ? handleRemoveAgent : node.data.onRemoveAgent,
+      },
+    })), [nodes, handleAddAgent, handleRemoveAgent]
+  );
 
   const onConnect = useCallback(
     (params) =>
@@ -333,27 +275,25 @@ function CExecutivePage() {
     [setEdges]
   );
 
-  const fetchAgentById = async (agentId) => {
+  const fetchAgentById = useCallback(async (agentId) => {
     try {
       const response = await fetch(`${API_BASE_URL}/agents/${agentId}`);
       if (!response.ok) throw new Error('Failed to fetch agent');
       return await response.json();
-    } catch (err) {
-      console.error('Error fetching agent:', err);
+    } catch {
       return null;
     }
-  };
+  }, []);
 
   const onNodeClick = useCallback(async (event, node) => {
     setSelectedNode(node);
-    // Only fetch if not CEO node
     if (node.type === "agentNode" || node.type === "ceoNode") {
       const agentData = await fetchAgentById(node.id);
       setSelectedAgent(agentData);
     } else {
       setSelectedAgent(null);
     }
-  }, []);
+  }, [fetchAgentById]);
 
   const handleRefresh = useCallback(() => {
     fetchCExecutiveStructure();
@@ -388,7 +328,6 @@ function CExecutivePage() {
       
       <div className="flex-1 flex">
         <div className="flex-1 relative">
-          {/* Refresh button */}
           <button
             onClick={handleRefresh}
             className="absolute top-4 right-4 z-10 bg-blue-600 text-white px-3 py-2 rounded-md hover:bg-blue-700 text-sm"
