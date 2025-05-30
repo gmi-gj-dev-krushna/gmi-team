@@ -205,16 +205,20 @@ function CExecutivePage() {
     try {
       let agentId = agentData.id;
       if (!agentId) {
+        // Ensure backstory is an array of strings
+        const payload = {
+          name: agentData.name,
+          role: agentData.role,
+          goal: agentData.goal,
+          backstory: Array.isArray(agentData.backstory)
+            ? agentData.backstory.filter(story => story.trim() !== '')
+            : [agentData.backstory],
+          verbose: true,
+        };
         const createAgentResponse = await fetch(`${API_BASE_URL}/agents`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: agentData.name,
-            role: agentData.role,
-            goal: agentData.goal,
-            backstory: Array.isArray(agentData.backstory) ? agentData.backstory.join('\n') : agentData.backstory,
-            verbose: true,
-          }),
+          body: JSON.stringify(payload),
         });
         if (!createAgentResponse.ok) throw new Error('Failed to create agent');
         const newAgent = await createAgentResponse.json();
