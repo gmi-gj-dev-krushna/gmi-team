@@ -98,13 +98,14 @@ class CExecutiveResponse(BaseModel):
     total_agents: int
     last_updated: str
 
+class AgentIDPayload(BaseModel):
+    agent_id: str
+
 
 def get_ceo_and_connected_agents() -> dict:
-    """Get CEO agent and his connected agents' IDs only"""
     database = get_database()
     user_agents_collection = database["agents"]
 
-    # Find CEO agent
     ceo_agent = user_agents_collection.find_one({"name": "CEO_agent"})
     if not ceo_agent:
         raise HTTPException(
@@ -112,19 +113,20 @@ def get_ceo_and_connected_agents() -> dict:
             detail="CEO agent not found in database."
         )
 
-    # Get connected agent IDs from CEO's data
-    connected_agent_ids = ceo_agent["agent_data"].get("connected_agents", [])
+    agent_data = ceo_agent.get("agent_data", {})
+    connected_agent_ids = agent_data.get("connected_agents", [])
 
     return {
         "ceo_agent": {
-            "id": str(ceo_agent["_id"]),
-            "name": ceo_agent["name"],
+            "id": str(ceo_agent.get("_id", "")),
+            "name": ceo_agent.get("name", ""),
             "last_updated": str(ceo_agent.get("last_updated", ""))
         },
         "connected_agents": [{"id": aid} for aid in connected_agent_ids],
         "total_agents": len(connected_agent_ids) + 1,
         "last_updated": str(ceo_agent.get("last_updated", ""))
     }
+
 def get_agent_from_database(agent_name: str) -> Optional[dict]:
     """Get agent from database only - no hardcoded data"""
     database = get_database()
@@ -507,57 +509,94 @@ def get_c_executive_structure():
             detail=f"Failed to retrieve C-Executive structure: {str(e)}"
         )
 
-@app.post("/cexecutive/update-connections")
-def update_ceo_connections(connected_agent_ids: List[str]):
-    """Update CEO's connected agents using their agent IDs"""
+@app.post("/cexecutive/add-agent")
+def add_agent_to_ceo(payload: AgentIDPayload):
     database = get_database()
-    user_agents_collection = database["agents"]
+    agents_col = database["agents"]
 
-    # Find CEO agent
-    ceo_agent = user_agents_collection.find_one({"name": "CEO_agent"})
+    ceo_agent = agents_col.find_one({"name": "CEO_agent"})
     if not ceo_agent:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="CEO agent not found"
-        )
+        raise HTTPException(status_code=404, detail="CEO agent not found")
 
-    # Validate each agent ID
-    valid_agent_ids = []
-    for agent_id in connected_agent_ids:
-        try:
-            ObjectId(agent_id)  # Validate the ID format
-            agent = user_agents_collection.find_one({"_id": ObjectId(agent_id)})
-            if agent:
-                valid_agent_ids.append(agent_id)
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Agent with ID {agent_id} not found"
-                )
-        except InvalidId:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid agent ID format: {agent_id}"
-            )
+    if not ObjectId.is_valid(payload.agent_id):
+        raise HTTPException(status_code=400, detail="Invalid agent ID format")
 
-    # Update CEO's connected_agents field with validated agent IDs
-    ceo_agent["agent_data"]["connected_agents"] = valid_agent_ids
+    agent_obj = agents_col.find_one({"_id": ObjectId(payload.agent_id)})
+    if not agent_obj:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    # Ensure agent_data exists
+    agent_data = ceo_agent.get("agent_data", {})
+    connected = agent_data.get("connected_agents", [])
+
+    # Append new agent if not already connected
+    if payload.agent_id not in connected:
+        connected.append(payload.agent_id)
+
+    # Update ceo_agent fields
+    agent_data["connected_agents"] = connected
+    ceo_agent["agent_data"] = agent_data
     ceo_agent["last_updated"] = datetime.utcnow()
 
-    user_agents_collection.update_one(
+    agents_col.update_one(
         {"_id": ceo_agent["_id"]},
-        {
-            "$set": {
+        {"$set": {
+            "agent_data": ceo_agent["agent_data"],
+            "last_updated": ceo_agent["last_updated"]
+        }}
+    )
+
+    return {
+        "message": "Agent linked to CEO",
+        "connected_agents": connected
+    }
+
+
+@app.post("/cexecutive/remove-agent")
+def remove_agent_from_ceo(payload: AgentIDPayload):
+    database = get_database()
+    agents_col = database["agents"]
+
+    ceo_agent = agents_col.find_one({"name": "CEO_agent"})
+    if not ceo_agent:
+        raise HTTPException(status_code=404, detail="CEO agent not found")
+
+    if not ObjectId.is_valid(payload.agent_id):
+        raise HTTPException(status_code=400, detail="Invalid agent ID format")
+
+    # Load and ensure defaults
+    agent_data = ceo_agent.get("agent_data", {})
+    connected = agent_data.get("connected_agents", [])
+
+    if payload.agent_id in connected:
+        connected.remove(payload.agent_id)
+
+        # Update data
+        agent_data["connected_agents"] = connected
+        ceo_agent["agent_data"] = agent_data
+        ceo_agent["last_updated"] = datetime.utcnow()
+
+        agents_col.update_one(
+            {"_id": ceo_agent["_id"]},
+            {"$set": {
                 "agent_data": ceo_agent["agent_data"],
                 "last_updated": ceo_agent["last_updated"]
-            }
+            }}
+        )
+
+        return {
+            "message": "Agent unlinked from CEO",
+            "connected_agents": connected
         }
-    )
+
     return {
-        "message": "CEO connections updated successfully",
-        "connected_agent_ids": valid_agent_ids,
-        "total_connections": len(valid_agent_ids)
+        "message": "Agent was not linked to CEO",
+        "connected_agents": connected
     }
+
+
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
