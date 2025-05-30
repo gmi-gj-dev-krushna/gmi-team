@@ -362,6 +362,35 @@ def check_today_leave():
         "result": result.raw
     }
 
+@app.get("/agents/my-agents")
+def get_my_agents():
+    """Get all agents from agents collection"""
+    database = get_database()
+    agents_collection = database["agents"] 
+    agents = []
+    for agent in agents_collection.find():
+     
+        agent_data = dict(agent)
+        agent_data["_id"] = str(agent_data["_id"])  
+
+        if "created_at" in agent_data:
+            agent_data["created_at"] = str(agent_data["created_at"])
+        if "updated_at" in agent_data:
+            agent_data["updated_at"] = str(agent_data["updated_at"])
+                 
+        agents.append({
+            "agent_id": str(agent["_id"]),
+            "agent_name": agent.get("name", ""), 
+            "agent_data": agent_data, 
+            "last_updated": str(agent.get("updated_at", "")),  
+            "source": "database"
+        })
+    return {
+        "message": f"Retrieved {len(agents)} agents from database",
+        "agents": agents
+    }
+
+
 @app.get("/agents/{agent_id}", response_model=UserAgentResponse)
 def get_agent_by_id(agent_id: str):
     """Get agent details by ID"""
@@ -369,7 +398,7 @@ def get_agent_by_id(agent_id: str):
         database = get_database()
         agents_collection = database["agents"]
         
-        # Try to find the document
+   
         agent_doc = agents_collection.find_one({"_id": ObjectId(agent_id)})
         
         if not agent_doc:
@@ -393,37 +422,55 @@ def get_agent_by_id(agent_id: str):
         print(f"Unexpected error: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@app.post("/agent/{agent_id}/update", response_model=UserAgentResponse)
+
+@app.post("/agent/{agent_id}/update")
 def update_agent_by_id(agent_id: str, update: AgentUpdate):
     """Update agent by ID"""
     try:
         database = get_database()
-        user_agents_collection = database["user_agents"]
-        agent_doc = user_agents_collection.find_one({"_id": ObjectId(agent_id)})
+        agents_collection = database["agents"]  
+        agent_doc = agents_collection.find_one({"_id": ObjectId(agent_id)})
         if not agent_doc:
             raise HTTPException(status_code=404, detail="Agent not found")
 
-        updated_agent_data = agent_doc["agent_data"]
-        for key, value in update.dict(exclude_unset=True).items():
-            updated_agent_data[key] = value
-
+       
+        update_fields = {}
+        update_data = update.dict(exclude_unset=True)
+        
+       
+        for key, value in update_data.items():
+            if key == "agent_name" or key == "name":
+                update_fields["name"] = value
+            elif key in ["role", "goal", "backstory", "verbose", "is_active"]:
+                update_fields[key] = value
+        
+       
         from datetime import datetime
-        user_agents_collection.update_one(
+        update_fields["updated_at"] = datetime.utcnow()
+
+      
+        agents_collection.update_one(
             {"_id": ObjectId(agent_id)},
-            {"$set": {
-                "agent_data": updated_agent_data,
-                "last_updated": datetime.utcnow()
-            }}
+            {"$set": update_fields}
         )
 
-        return UserAgentResponse(
-            agent_name=agent_doc["agent_name"],
-            agent_data=updated_agent_data,
-            last_updated=str(datetime.utcnow())
-        )
+      
+        updated_doc = agents_collection.find_one({"_id": ObjectId(agent_id)})
+
+        
+        return {
+            "name": updated_doc.get("name"),
+            "role": updated_doc.get("role"),
+            "goal": updated_doc.get("goal"),
+            "backstory": updated_doc.get("backstory"),
+            "verbose": updated_doc.get("verbose")
+        }
+
     except InvalidId:
         raise HTTPException(status_code=400, detail="Invalid agent ID format")
-
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 # @app.get("/agents/my-agents")
 # def get_my_agents():
 #     """Get all default agent templates from the file system."""
@@ -442,29 +489,6 @@ def update_agent_by_id(agent_id: str, update: AgentUpdate):
 #         "message": f"Retrieved {len(agents)} default agent templates",
 #         "agents": agents
 #     }
-
-@app.get("/agents/my-agents")
-def get_my_agents():
-    """Get all agents from agents collection"""
-    database = get_database()
-    agents_collection = database["agents"]  # Changed from "user_agents" to "agents"
-    agents = []
-    for agent in agents_collection.find():
-        # Convert ObjectId to string and handle any other non-serializable fields
-        agent_data = dict(agent)
-        agent_data["_id"] = str(agent_data["_id"])  # Convert ObjectId to string
-        
-        agents.append({
-            "agent_id": str(agent["_id"]),
-            "agent_name": agent.get("name", ""),  # Use get() to handle missing fields
-            "agent_data": agent_data,  # Now properly serializable
-            "last_updated": str(agent.get("last_updated", "")),
-            "source": "database"
-        })
-    return {
-        "message": f"Retrieved {len(agents)} agents from database",
-        "agents": agents
-    }
 
 
 @app.delete("/agent/{agent_name}/reset")
