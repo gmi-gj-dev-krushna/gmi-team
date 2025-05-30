@@ -475,7 +475,7 @@ def get_agent_by_id(agent_id: str):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@app.post("/agent/{agent_id}/update")
+@app.put("/agent/{agent_id}/update")
 def update_agent_by_id(agent_id: str, update: AgentUpdate):
     """Update agent by ID"""
     try:
