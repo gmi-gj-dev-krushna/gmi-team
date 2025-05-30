@@ -11,6 +11,7 @@ from utils import create_agent
 from bson import ObjectId
 from bson.errors import InvalidId
 import json
+from datetime import datetime
 from auth import (
     UserRegister, UserLogin, SessionResponse, User,
     connect_to_mongo, close_mongo_connection,
@@ -88,6 +89,56 @@ class UserAgentResponse(BaseModel):
     agent_name: str
     agent_data: dict
     last_updated: str
+
+
+
+class CExecutiveResponse(BaseModel):
+    ceo_agent: dict
+    connected_agents: List[dict]
+    total_agents: int
+    last_updated: str
+
+
+def get_ceo_and_connected_agents() -> dict:
+    """Get CEO agent and his connected agents' IDs only"""
+    database = get_database()
+    user_agents_collection = database["agents"]
+
+    # Find CEO agent
+    ceo_agent = user_agents_collection.find_one({"name": "CEO_agent"})
+    if not ceo_agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="CEO agent not found in database."
+        )
+
+    # Get connected agent IDs from CEO's data
+    connected_agent_ids = ceo_agent["agent_data"].get("connected_agents", [])
+
+    return {
+        "ceo_agent": {
+            "id": str(ceo_agent["_id"]),
+            "name": ceo_agent["name"],
+            "last_updated": str(ceo_agent.get("last_updated", ""))
+        },
+        "connected_agents": [{"id": aid} for aid in connected_agent_ids],
+        "total_agents": len(connected_agent_ids) + 1,
+        "last_updated": str(ceo_agent.get("last_updated", ""))
+    }
+def get_agent_from_database(agent_name: str) -> Optional[dict]:
+    """Get agent from database only - no hardcoded data"""
+    database = get_database()
+    user_agents_collection = database["user_agents"]
+    
+    # Only get from database
+    agent_doc = user_agents_collection.find_one({"agent_name": agent_name})
+    
+    if agent_doc:
+        return agent_doc["agent_data"]
+    
+    # Return None if not found - no hardcoded data
+    return None
+
 
 def get_user_agent_from_db(user_id: str, agent_name: str) -> Optional[dict]:
     """Get user's specific agent from database"""
@@ -376,22 +427,27 @@ def update_agent_by_id(agent_id: str, update: AgentUpdate):
 
 @app.get("/agents/my-agents")
 def get_my_agents():
-    """Get all agents from DB"""
+    """Get all agents from agents collection"""
     database = get_database()
-    user_agents_collection = database["user_agents"]
+    agents_collection = database["agents"]  # Changed from "user_agents" to "agents"
     agents = []
-    for agent in user_agents_collection.find():
+    for agent in agents_collection.find():
+        # Convert ObjectId to string and handle any other non-serializable fields
+        agent_data = dict(agent)
+        agent_data["_id"] = str(agent_data["_id"])  # Convert ObjectId to string
+        
         agents.append({
             "agent_id": str(agent["_id"]),
-            "agent_name": agent["agent_name"],
-            "agent_data": agent["agent_data"],
-            "last_updated": str(agent["last_updated"]),
-            "source": "user"
+            "agent_name": agent.get("name", ""),  # Use get() to handle missing fields
+            "agent_data": agent_data,  # Now properly serializable
+            "last_updated": str(agent.get("last_updated", "")),
+            "source": "database"
         })
     return {
-        "message": f"Retrieved {len(agents)} user agents",
+        "message": f"Retrieved {len(agents)} agents from database",
         "agents": agents
     }
+
 
 @app.delete("/agent/{agent_name}/reset")
 def reset_agent_to_default(
@@ -429,7 +485,79 @@ async def create_public_agent(agent_data: AgentCreate):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Agent creation failed: {str(e)}"
         )
+    
 
+
+
+@app.get("/cexecutive", response_model=CExecutiveResponse)
+def get_c_executive_structure():
+    """Get CEO agent and his connected C-level executives"""
+    try:
+        result = get_ceo_and_connected_agents()
+        
+        return CExecutiveResponse(
+            ceo_agent=result["ceo_agent"],
+            connected_agents=result["connected_agents"],
+            total_agents=len(result["connected_agents"]) + 1,  
+            last_updated=str(result["ceo_agent"]["last_updated"])
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve C-Executive structure: {str(e)}"
+        )
+
+@app.post("/cexecutive/update-connections")
+def update_ceo_connections(connected_agent_ids: List[str]):
+    """Update CEO's connected agents using their agent IDs"""
+    database = get_database()
+    user_agents_collection = database["agents"]
+
+    # Find CEO agent
+    ceo_agent = user_agents_collection.find_one({"name": "CEO_agent"})
+    if not ceo_agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="CEO agent not found"
+        )
+
+    # Validate each agent ID
+    valid_agent_ids = []
+    for agent_id in connected_agent_ids:
+        try:
+            ObjectId(agent_id)  # Validate the ID format
+            agent = user_agents_collection.find_one({"_id": ObjectId(agent_id)})
+            if agent:
+                valid_agent_ids.append(agent_id)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Agent with ID {agent_id} not found"
+                )
+        except InvalidId:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid agent ID format: {agent_id}"
+            )
+
+    # Update CEO's connected_agents field with validated agent IDs
+    ceo_agent["agent_data"]["connected_agents"] = valid_agent_ids
+    ceo_agent["last_updated"] = datetime.utcnow()
+
+    user_agents_collection.update_one(
+        {"_id": ceo_agent["_id"]},
+        {
+            "$set": {
+                "agent_data": ceo_agent["agent_data"],
+                "last_updated": ceo_agent["last_updated"]
+            }
+        }
+    )
+    return {
+        "message": "CEO connections updated successfully",
+        "connected_agent_ids": valid_agent_ids,
+        "total_connections": len(valid_agent_ids)
+    }
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
