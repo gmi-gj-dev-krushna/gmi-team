@@ -362,22 +362,36 @@ def check_today_leave():
         "result": result.raw
     }
 
-@app.get("/agent/{agent_id}", response_model=UserAgentResponse)
+@app.get("/agents/{agent_id}", response_model=UserAgentResponse)
 def get_agent_by_id(agent_id: str):
     """Get agent details by ID"""
     try:
         database = get_database()
-        user_agents_collection = database["user_agents"]
-        agent_doc = user_agents_collection.find_one({"_id": ObjectId(agent_id)})
+        agents_collection = database["agents"]
+        
+        # Try to find the document
+        agent_doc = agents_collection.find_one({"_id": ObjectId(agent_id)})
+        
         if not agent_doc:
             raise HTTPException(status_code=404, detail="Agent not found")
+        
         return UserAgentResponse(
-            agent_name=agent_doc["agent_name"],
-            agent_data=agent_doc["agent_data"],
-            last_updated=str(agent_doc["last_updated"])
+            agent_name=agent_doc.get("name", "Unknown"),
+            agent_data={
+                "role": agent_doc.get("role"),
+                "goal": agent_doc.get("goal"),
+                "backstory": agent_doc.get("backstory"),
+                "verbose": agent_doc.get("verbose"),
+                "is_active": agent_doc.get("is_active"),
+                "created_at": str(agent_doc.get("created_at"))
+            },
+            last_updated=str(agent_doc.get("updated_at", "Unknown"))
         )
     except InvalidId:
         raise HTTPException(status_code=400, detail="Invalid agent ID format")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.post("/agent/{agent_id}/update", response_model=UserAgentResponse)
 def update_agent_by_id(agent_id: str, update: AgentUpdate):
